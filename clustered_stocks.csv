@@ -1,0 +1,16 @@
+Stock_Name,Sector,Annual_Return,Volatility_Beta,Cluster_ID,Risk_Category
+TCS,IT,12,0.6,2,Safe
+Infosys,IT,11,0.7,2,Safe
+HDFC Bank,Bank,14,0.9,2,Moderate
+ICICI Bank,Bank,18,1.1,0,Moderate
+HUL,FMCG,10,0.4,2,Safe
+ITC,FMCG,15,0.5,0,Safe
+Nestle,FMCG,9,0.3,2,Safe
+Reliance,Oil/Energy,13,1.0,2,Moderate
+L&T,Construction,20,1.2,0,Moderate
+Tata Motors,Auto,35,1.5,1,Risky
+Adani Ent,Metals,40,2.2,1,Risky
+Zomato,Tech,45,2.5,1,Risky
+Bajaj Finance,Finance,22,1.4,0,Moderate
+Nifty50 ETF,Index,12,1.0,2,Moderate
+Gold BeES,Commodity,8,0.2,2,Safe
