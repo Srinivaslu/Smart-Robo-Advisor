@@ -5,6 +5,10 @@ import joblib
 import matplotlib.pyplot as plt
 from fpdf import FPDF
 import datetime  
+from openai import OpenAI
+import gspread
+from google.oauth2.service_account import Credentials
+import json
 
 # ==========================================
 # 1. SETUP & CONFIGURATION
@@ -22,10 +26,43 @@ except FileNotFoundError:
     st.error("🚨 CRITICAL ERROR: Model files not found!")
     st.warning("Please run 'training_logics.ipynb' first to generate 'risk_model.pkl' and 'clustered_stocks.csv'.")
     st.stop()
+    
+    
 
 # ==========================================
 # 3. HELPER FUNCTIONS (MATH, LOGIC & FORMATTING)
 # ==========================================
+
+import json # Make sure this is at the top of your file!
+
+def save_to_google_sheets(data_list):
+    """Silently pushes a row of user data to the Google Sheet."""
+    try:
+        scopes = [
+            'https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/drive'
+        ]
+        
+        # --- NEW: CLOUD VS LOCAL LOGIC ---
+        if "gcp_credentials" in st.secrets:
+            # We are on Streamlit Cloud! Read the secret password securely.
+            creds_dict = json.loads(st.secrets["gcp_credentials"])
+            creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        else:
+            # We are testing locally on your laptop. Use the file.
+            creds = Credentials.from_service_account_file('google_credentials.json', scopes=scopes)
+        
+        client = gspread.authorize(creds)
+        
+        # Make sure this matches the exact name of your Google Sheet!
+        sheet = client.open('MBA_Robo_Advisor_Data').sheet1 
+        sheet.append_row(data_list)
+        
+    except Exception as e:
+        print(f"⚠️ Could not save to Google Sheets: {e}")
+        
+        # We use a print statement instead of st.error so it fails silently 
+        # and doesn't interrupt the user's experience if the internet blips!
 
 def format_indian(number):
     """
@@ -64,7 +101,8 @@ def get_live_prices(ticker_list):
         # We assume tickers in your CSV don't have '.NS', so we add it
         # Note: In a real app, your CSV should have a 'Symbol' column like 'RELIANCE'
         # For this demo, we will just fetch a benchmark like Nifty 50 if specific symbols aren't in CSV
-        tickers = [t + ".NS" for t in ticker_list] 
+        # BUG FIX: Only add '.NS' if the ticker doesn't already have a '.' (like .BO)
+        tickers = [t if t.startswith('^') or '.' in t else t + ".NS" for t in ticker_list]
         data = yf.download(tickers, period="1d", progress=False)['Close']
         
         # If single stock, data is a Series; if multiple, it's a DataFrame
@@ -77,31 +115,70 @@ def get_live_prices(ticker_list):
         
     return live_data
 
-def generate_smart_strategy(user_profile, age, wellness_score, debt_status, surplus):
-    """Generates personalized text advice based on user data."""
-    tips = []
+# def generate_smart_strategy(user_profile, age, wellness_score, debt_status, surplus):
+#     """Generates personalized text advice based on user data."""
+#     tips = []
     
-    # 1. AGE BASED ADVICE
-    if age < 30:
-        tips.append("🌱 **Age Advantage:** You are in the 'Golden Accumulation Phase'. Your biggest asset is Time. Even small SIPs now will compound massively over 20+ years.")
-    elif age < 50:
-        tips.append("⚓ **Peak Earning Phase:** Focus on increasing your SIP step-up rate. This is the time to maximize tax-saving instruments (NPS/PPF) alongside equity.")
-    else:
-        tips.append("🛡️ **Preservation Phase:** As you approach retirement, shift focus from 'High Growth' to 'Stable Income'. Reduce exposure to small-cap stocks.")
+#     # 1. AGE BASED ADVICE
+#     if age < 30:
+#         tips.append("🌱 **Age Advantage:** You are in the 'Golden Accumulation Phase'. Your biggest asset is Time. Even small SIPs now will compound massively over 20+ years.")
+#     elif age < 50:
+#         tips.append("⚓ **Peak Earning Phase:** Focus on increasing your SIP step-up rate. This is the time to maximize tax-saving instruments (NPS/PPF) alongside equity.")
+#     else:
+#         tips.append("🛡️ **Preservation Phase:** As you approach retirement, shift focus from 'High Growth' to 'Stable Income'. Reduce exposure to small-cap stocks.")
 
-    # 2. SCORE BASED ADVICE
-    if wellness_score < 50:
-        tips.append("🚨 **Financial First Aid:** Your Wellness Score is low. Before aggressive investing, build your Emergency Fund (6 months expenses) and clear loans > 10% interest.")
-    elif wellness_score > 80:
-        tips.append("🚀 **Wealth Accelerator:** Your basics are strong. Consider diversifying into 'Alternative Assets' like REITs or International Funds for the next leg of growth.")
+#     # 2. SCORE BASED ADVICE
+#     if wellness_score < 50:
+#         tips.append("🚨 **Financial First Aid:** Your Wellness Score is low. Before aggressive investing, build your Emergency Fund (6 months expenses) and clear loans > 10% interest.")
+#     elif wellness_score > 80:
+#         tips.append("🚀 **Wealth Accelerator:** Your basics are strong. Consider diversifying into 'Alternative Assets' like REITs or International Funds for the next leg of growth.")
 
-    # 3. PROFILE SPECIFIC
-    if user_profile == "Conservative":
-        tips.append("⚠️ **Inflation Alert:** Being too safe is also risky. Fixed Deposits often lose value against inflation. Stick to the recommended 20% Equity allocation to beat inflation.")
-    elif user_profile == "Aggressive":
-        tips.append("📉 **Volatility Warning:** Your portfolio is high-growth but volatile. Do not panic sell if the market drops 10-20%. View corrections as buying opportunities.")
+#     # 3. PROFILE SPECIFIC
+#     if user_profile == "Conservative":
+#         tips.append("⚠️ **Inflation Alert:** Being too safe is also risky. Fixed Deposits often lose value against inflation. Stick to the recommended 20% Equity allocation to beat inflation.")
+#     elif user_profile == "Aggressive":
+#         tips.append("📉 **Volatility Warning:** Your portfolio is high-growth but volatile. Do not panic sell if the market drops 10-20%. View corrections as buying opportunities.")
 
-    return tips
+#     return tips
+
+def generate_smart_strategy(user_profile, age, wellness_score, debt_status, surplus):
+    """Generates personalized text advice using local Phi-3 via Ollama."""
+    
+    try:
+        # Connect to your local Ollama server
+        client = OpenAI(
+            base_url='http://localhost:11434/v1/',
+            api_key='ollama', # Dummy key required by the library
+        )
+        
+        # Build the prompt with the user's actual data
+        prompt = f"""
+        You are an expert Indian financial advisor. Generate 3 short, personalized financial tips for a client with this profile:
+        - Age: {age}
+        - Risk Profile: {user_profile}
+        - Financial Wellness Score (0-100): {wellness_score}
+        - Debt Status: {debt_status}
+        - Monthly Investment Surplus: ₹{surplus}
+
+        Instructions: Provide exactly 3 tips. Format as a bulleted list using '-'. Keep each tip to one sentence. Start each with an emoji.
+        """
+        
+        # Ask Phi-3 to generate the tips
+        response = client.chat.completions.create(
+            model='phi3',
+            messages=[{'role': 'user', 'content': prompt}],
+            temperature=0.7
+        )
+        
+        # Clean up the text so it fits nicely in your Streamlit app and PDF
+        raw_text = response.choices[0].message.content.strip()
+        tips = [tip.strip('-* ') for tip in raw_text.split('\n') if tip.strip()]
+        
+        return tips
+
+    except Exception as e:
+        print(f"Local AI Error: {e}")
+        return ["⚠️ **AI Offline:** Make sure Ollama is running in the background."]
 
 # --- REPLACE YOUR EXISTING WEALTH & PROJECTION FUNCTIONS WITH THESE TWO ---
 
@@ -269,16 +346,14 @@ def calculate_wellness_score(income, expenses, total_emi, emergency_fund_status,
     
     return min(100, score) # Cap at 100
 
-# --- ADVANCED STOCK LOGIC (Fixed to return OLD NAMES) ---
 def get_diversified_stocks(risk_category, need_tax_saving):
-    
     # 1. BUFFETT RULE (Safe = ETFs)
     if risk_category == "Safe":
         data = [
-            {'Stock_Name': 'Nifty 50 ETF', 'Sector': 'Index Fund', 'Annual_Return': 12.5, 'Volatility_Beta': 1.0},
-            {'Stock_Name': 'Gold BeES', 'Sector': 'Commodity', 'Annual_Return': 8.5, 'Volatility_Beta': 0.25},
-            {'Stock_Name': 'Liquid BeES', 'Sector': 'Debt', 'Annual_Return': 6.0, 'Volatility_Beta': 0.05},
-            {'Stock_Name': 'Nifty Next 50', 'Sector': 'Midcap Index', 'Annual_Return': 14.0, 'Volatility_Beta': 1.1},
+            {'Stock_Name': 'Nifty 50 ETF', 'Symbol': 'NIFTYBEES', 'Sector': 'Index Fund', 'Annual_Return': 12.5, 'Volatility_Beta': 1.0},
+            {'Stock_Name': 'Gold BeES', 'Symbol': 'GOLDBEES', 'Sector': 'Commodity', 'Annual_Return': 8.5, 'Volatility_Beta': 0.25},
+            {'Stock_Name': 'Liquid BeES', 'Symbol': 'LIQUIDBEES', 'Sector': 'Debt', 'Annual_Return': 6.0, 'Volatility_Beta': 0.05},
+            {'Stock_Name': 'Nifty Next 50', 'Symbol': 'JUNIORBEES', 'Sector': 'Midcap Index', 'Annual_Return': 14.0, 'Volatility_Beta': 1.1},
         ]
         df = pd.DataFrame(data)
     else:
@@ -296,15 +371,14 @@ def get_diversified_stocks(risk_category, need_tax_saving):
             if len(portfolio) >= 5: break
         
         df = pd.DataFrame(portfolio)
-        
-        # --- CHANGE IS HERE: We kept the OLD NAMES ---
-        df = df[['Stock_Name', 'Sector', 'Annual_Return', 'Volatility_Beta']]
+        # --- We now pull the Symbol column too ---
+        df = df[['Stock_Name', 'Symbol', 'Sector', 'Annual_Return', 'Volatility_Beta']]
 
     # 3. RACHANA RANADE RULE (Tax Saving)
     if need_tax_saving:
-        # --- CHANGE IS HERE: Used OLD NAMES for ELSS too ---
         elss_fund = pd.DataFrame([{
-            'Stock_Name': 'Quant Tax Plan (ELSS)', 
+            'Stock_Name': 'Quant Tax Plan', 
+            'Symbol': '0P0000XW8F.BO', # BSE mutual fund ticker
             'Sector': 'Tax Saving MF', 
             'Annual_Return': 15.5, 
             'Volatility_Beta': 1.1
@@ -367,7 +441,9 @@ def create_pdf_report(user_profile, monthly_surplus, future_val, allocation, rec
     # --- 3. RECOMMENDED ALLOCATION ---
     pdf.set_font("Helvetica", 'B', 14); pdf.cell(200, 10, txt="3. Recommended Asset Allocation", ln=True)
     pdf.set_font("Helvetica", size=12)
-    pdf.cell(200, 10, txt=f"Equity: {allocation['Equity']}% | Debt: {allocation['Debt']}% | Gold: {allocation['Gold']}%", ln=True)
+    
+    # NEW: Updated to match 'Debt Funds'
+    pdf.cell(200, 10, txt=f"Equity: {allocation['Equity']}% | Debt Funds: {allocation['Debt Funds']}% | Gold: {allocation['Gold']}%", ln=True)
     pdf.ln(5)
     
     # --- 4. PORTFOLIO SELECTION ---
@@ -407,38 +483,38 @@ def create_pdf_report(user_profile, monthly_surplus, future_val, allocation, rec
 st.sidebar.title("📝 User Details")
 st.sidebar.caption(f"Market Data Updated: {datetime.date.today().strftime('%d %b %Y')}")
 
-# --- Financial Status ---
-st.sidebar.subheader("💰 Financials")
+# --- 1. DEMOGRAPHICS FOR RESEARCH ---
+st.sidebar.subheader("👤 Personal Info (For Research)")
+user_name = st.sidebar.text_input("First Name", placeholder="e.g., Amit")
+user_gender = st.sidebar.selectbox("Gender", ["Male", "Female", "Other", "Prefer not to say"])
+user_city = st.sidebar.selectbox("Location Type", ["Metro City", "Tier 2 City", "Tier 3 / Rural"])
+dependents = st.sidebar.number_input("Number of Dependents (Kids/Parents)", 0, 10, 0)
+
+st.sidebar.markdown("---")
+
+# --- 2. FINANCIAL BASELINE ---
+st.sidebar.subheader("💰 Income & Expenses")
 age = st.sidebar.number_input("Current Age", 18, 80, 25)
 retire_age = st.sidebar.number_input("Retirement Age", 40, 90, 60)
 income = st.sidebar.number_input("Monthly Income (₹)", 10000, 1000000, 50000, step=5000)
 expenses = st.sidebar.number_input("Monthly Expenses (₹)", 5000, 500000, 20000, step=1000)
 
-# --- SMART TAX LOGIC (INDIAN CONTEXT) ---
+# Smart Tax Logic
 annual_income = income * 12
-# Tax Threshold for FY24-25 (New Regime) is 7.75 Lakhs (7L + 75k Std Deduction)
 tax_threshold = 775000 
+tax_default = True if annual_income > tax_threshold else False
 
-# Auto-decide if tax saving is needed
-if annual_income > tax_threshold:
-    tax_default = True
-    tax_help_msg = "✅ Recommended: Your income is above ₹7.75L (Taxable Zone)."
-else:
-    tax_default = False
-    tax_help_msg = "❌ Not Needed: Your income is below ₹7.75L (Tax Free under New Regime)."
-
-# --- NEW: MULTI-LOAN MANAGEMENT (Replaces old EMI input) ---
 st.sidebar.markdown("---")
-st.sidebar.subheader("🏦 Loan Management")
-st.sidebar.caption("Add your active loans here (Car, Home, etc.):")
 
-# Default data to show the user an example
+# --- 3. LOAN MANAGEMENT ---
+st.sidebar.subheader("🏦 Loan Management")
+st.sidebar.caption("Add your active loans here:")
+
 default_loans = pd.DataFrame([
     {"Loan Name": "Car Loan", "EMI Amount (₹)": 15000, "Interest Rate (%)": 9.5, "Years Remaining": 3},
-    {"Loan Name": "Home Loan", "EMI Amount (₹)": 25000, "Interest Rate (%)": 8.5, "Years Remaining": 15},
+    {"Loan Name": "Home Loan", "EMI Amount (₹)": 0, "Interest Rate (%)": 8.5, "Years Remaining": 15},
 ])
 
-# The Editable Table
 loan_df = st.sidebar.data_editor(
     default_loans, 
     num_rows="dynamic",
@@ -448,79 +524,89 @@ loan_df = st.sidebar.data_editor(
         "Interest Rate (%)": st.column_config.NumberColumn("Rate (%)", min_value=0.0, max_value=50.0, step=0.1),
         "Years Remaining": st.column_config.NumberColumn("Years Left", min_value=0.1, max_value=30.0, step=0.5)
     },
-    use_container_width=True
+    width='stretch'
 )
 
-# --- NEW: EXISTING FINANCIAL HABITS (For Wellness Score) ---
 st.sidebar.markdown("---")
-st.sidebar.subheader("🛡️ Current Financial Status")
-st.sidebar.caption("Select what you ALREADY have:")
+
+# --- 4. CURRENT ASSETS & PROTECTION ---
+st.sidebar.subheader("🛡️ Current Assets & Protection")
 
 has_health_ins = st.sidebar.checkbox("✅ Health Insurance (Self/Family)")
 has_term_ins = st.sidebar.checkbox("✅ Term Life Insurance")
 
+existing_wealth = st.sidebar.number_input("Total Existing Investments (₹)", 0, 100000000, 0, step=50000, help="Total value of FDs, Stocks, Gold, PFs, etc.")
+
 existing_investments = st.sidebar.multiselect(
-    "Where are you currently investing?",
-    ["Mutual Funds", "Stocks/Equity", "Gold", "Fixed Deposits (FD)", "Real Estate", "Crypto"],
+    "Where are you currently invested?",
+    ["Mutual Funds", "Stocks/Equity", "Gold", "Fixed Deposits (FD)", "Real Estate", "Crypto", "PPF/EPF"],
     default=[]
 )
 
-# Tax Saving Checkbox
-st.sidebar.markdown("---")
-need_tax_saving = st.sidebar.checkbox("I need Tax Saving (80C) 📝", value=tax_default, help="Invests part of portfolio in ELSS Funds.")
+need_tax_saving = st.sidebar.checkbox("I need Tax Saving (80C) 📝", value=tax_default)
 
-# Sidebar Validation Warning
-if retire_age <= age:
-    st.sidebar.error("⚠️ Retirement Age must be greater than Current Age.")
-
-# --- STEP-UP SIP INPUT ---
 st.sidebar.markdown("---")
-st.sidebar.subheader("📈 Future Growth Strategy")
-step_up_rate = st.sidebar.slider(
-    "Annual Investment Increase (%)", 
-    0, 20, 7, 
-    help="We assume your salary hikes allow you to increase investment by 7% every year."
+
+# --- 5. GOALS & PSYCHOLOGY (NEW) ---
+st.sidebar.subheader("🎯 Your Life Goals")
+st.sidebar.caption("Add your short and long-term goals:")
+
+default_goals = pd.DataFrame([
+    {"Goal": "Car", "Cost (₹)": 800000, "Years Away": 3},
+    {"Goal": "Dream Home", "Cost (₹)": 5000000, "Years Away": 10},
+])
+
+# Create the interactive table
+goal_df = st.sidebar.data_editor(
+    default_goals, 
+    num_rows="dynamic",
+    column_config={
+        "Goal": st.column_config.SelectboxColumn(
+            "Goal Type",
+            help="Select or type a goal",
+            options=["House", "Car", "Bike", "Marriage", "Business", "Vacation", "Emergency Fund", "Other"],
+            required=True,
+        ),
+        "Cost (₹)": st.column_config.NumberColumn("Cost (₹)", min_value=10000, step=50000),
+        "Years Away": st.column_config.NumberColumn("Years", min_value=1, max_value=50, step=1)
+    },
+    width='stretch'
 )
 
-# --- Specific Goal ---
-st.sidebar.markdown("---")
-st.sidebar.subheader("🎯 Target Goal")
-goal_name = st.sidebar.text_input("Goal Name", "Dream Home")
-goal_cost = st.sidebar.number_input("Goal Cost (₹)", 100000, 100000000, 1000000, step=100000)
-goal_years = st.sidebar.number_input("Years to Goal", 1, 30, 5)
+step_up_rate = st.sidebar.slider("Annual Salary/SIP Increase (%)", 0, 20, 7)
 
-# --- Risk Questionnaire ---
+fin_fear = st.sidebar.selectbox("What is your biggest financial fear?", [
+    "Inflation eating my savings", 
+    "Job loss / Income stop", 
+    "Major Medical Emergency", 
+    "Outliving my money in retirement",
+    "Market crashes"
+])
+
 st.sidebar.markdown("---")
+
+# --- 6. RISK PROFILE ---
 st.sidebar.subheader("🧠 Risk Profile")
 q1 = st.sidebar.radio("1. What is your primary goal?", ("Avoid Loss (1)", "Stable Income (3)", "Grow Wealth (5)"))
 q2 = st.sidebar.radio("2. Investment Time Period?", ("Less than 3 Years (1)", "3-7 Years (3)", "More than 7 Years (5)"))
 q3 = st.sidebar.radio("3. Reaction to Market Crash?", ("Panic Sell (1)", "Hold & Wait (3)", "Buy More (5)"))
 
-# --- CEO Feature (Lead Gen) ---
-st.sidebar.markdown("---")
-st.sidebar.subheader("💎 Premium Alerts")
-email = st.sidebar.text_input("Email for Weekly Reports")
-if st.sidebar.button("Subscribe (Free)"): st.sidebar.success("Subscribed!")
-
 def calculate_score(q1, q2, q3):
     score = 0
-    # Logic for Q1
     if "Avoid" in q1: score += 1
     elif "Income" in q1: score += 3
     else: score += 5
-    # Logic for Q2
     if "Less" in q2: score += 1
     elif "3-7" in q2: score += 3
     else: score += 5
-    # Logic for Q3
     if "Sell" in q3: score += 1
     elif "Hold" in q3: score += 3
     else: score += 5
-    
-    # Scale to match training data
     return score * 2
 
 current_risk_score = calculate_score(q1, q2, q3)
+
+# Notice: Database buttons deleted entirely!
 
 # ==========================================
 # 6. MAIN EXECUTION (FULL & FIXED)
@@ -533,12 +619,73 @@ with st.expander("ℹ️  **System Architecture (Click to Expand)**"):
 
 st.markdown("---")
 
+# --- NEW: AT-A-GLANCE DASHBOARD ---
+# Calculate EMI just for the screen display
+display_emi = loan_df['EMI Amount (₹)'].sum() if not loan_df.empty else 0
+display_surplus = income - expenses - display_emi
+
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Monthly Income", f"₹{int(income):,}")
+col2.metric("Monthly Expenses", f"₹{int(expenses):,}")
+
+# The logic you asked for: Hide the number if Debt is 0!
+if display_emi > 0:
+    col3.metric("Debt Pay (EMI)", f"₹{int(display_emi):,}")
+else:
+    col3.success("🎉 Debt Free!")
+
+col4.metric("Available to Invest", f"₹{int(display_surplus):,}")
+st.markdown("---")
+
 if st.button("Generate My Investment Plan 🚀", type="primary"):
     
     # 0. BLOCKING ERROR CHECK
     if retire_age <= age:
         st.error("❌ Invalid Age: Retirement Age must be greater than Current Age.")
         st.stop()
+        
+# --- NEW: SILENT DATA COLLECTION FOR MBA REPORT ---
+    
+    # 1. Initialize empty defaults (using the exact names you want)
+    goal1_name, goal1_cost, goal1_years = "None", 0, 0
+    goal2_name, goal2_cost, goal2_years = "None", 0, 0
+    goal3_name, goal3_cost, goal3_years = "None", 0, 0
+
+    # 2. Safely extract up to the first 3 goals from the table
+    if not goal_df.empty:
+        valid_goals = goal_df.dropna().head(3) # Take only the top 3
+        goals_list = valid_goals.to_dict('records')
+        
+        if len(goals_list) > 0:
+            goal1_name = str(goals_list[0]['Goal'])
+            goal1_cost = int(goals_list[0]['Cost (₹)'])
+            goal1_years = int(goals_list[0]['Years Away'])
+        if len(goals_list) > 1:
+            goal2_name = str(goals_list[1]['Goal'])
+            goal2_cost = int(goals_list[1]['Cost (₹)'])
+            goal2_years = int(goals_list[1]['Years Away'])
+        if len(goals_list) > 2:
+            goal3_name = str(goals_list[2]['Goal'])
+            goal3_cost = int(goals_list[2]['Cost (₹)'])
+            goal3_years = int(goals_list[2]['Years Away'])
+
+    # 3. Build the massive, clean row for Google Sheets
+    user_data_row = [
+        datetime.date.today().strftime("%Y-%m-%d"), 
+        str(user_name), str(user_gender), str(user_city), int(dependents),
+        int(age), int(retire_age), int(income), int(expenses), int(display_emi), 
+        bool(has_health_ins), bool(has_term_ins), int(existing_wealth),
+        
+        # --- NEW: TOP 3 GOALS SEPARATED ---
+        str(goal1_name), int(goal1_cost), int(goal1_years),
+        str(goal2_name), int(goal2_cost), int(goal2_years),
+        str(goal3_name), int(goal3_cost), int(goal3_years),
+        
+        int(step_up_rate), str(fin_fear), int(current_risk_score)
+    ]
+    
+    # Send it to Google Sheets in the background!
+    save_to_google_sheets(user_data_row)
 
     # --- 1. DYNAMIC CALCULATION ENGINE ---
     years_to_invest = retire_age - age
@@ -554,8 +701,11 @@ if st.button("Generate My Investment Plan 🚀", type="primary"):
     # Define Surplus
     monthly_surplus = income - expenses - current_total_emi
     
-    # Check Debt Status
-    if not loan_df.empty and (loan_df['Interest Rate (%)'] > 12.0).any():
+    # --- BUG FIX: CHECK DEBT STATUS SAFELY ---
+    # Only look at loans where the user actually has an EMI greater than 0
+    active_loans = loan_df[loan_df['EMI Amount (₹)'] > 0] if not loan_df.empty else pd.DataFrame()
+    
+    if not active_loans.empty and (active_loans['Interest Rate (%)'] > 12.0).any():
          debt_check = "PRIORITY: PAY DEBT"
     else:
          debt_check = "SAFE"
@@ -589,12 +739,22 @@ if st.button("Generate My Investment Plan 🚀", type="primary"):
     
     # 2. SAFETY REPORT
     st.header("1️⃣ Safety & Risk Management")
-    col_safe1, col_safe2 = st.columns(2)
+    
+    # We change this to 3 columns to make room for Health Insurance!
+    col_safe1, col_safe2, col_safe3 = st.columns(3) 
+    
     emergency_fund = expenses * 6
     insurance_needed = (income * 12) * 20
+    health_cover_needed = 1000000 # Standard baseline recommendation (₹10 Lakhs)
     
     col_safe1.metric("🛡️ Emergency Fund", format_indian(emergency_fund), "Liquid Assets")
-    col_safe2.metric("🏥 Term Insurance", format_indian(insurance_needed), "Coverage")
+    col_safe2.metric("🏥 Term Life Cover", format_indian(insurance_needed), "Recommended Coverage")
+    
+    # NEW: Dynamic Health Insurance Display
+    if has_health_ins:
+        col_safe3.metric("🩺 Health Cover", "Active ✅", "Family Protected")
+    else:
+        col_safe3.metric("🩺 Health Cover", format_indian(health_cover_needed), "⚠️ Missing (High Risk)")
     
     # 3. STRATEGY DECISION
     if debt_check == "PRIORITY: PAY DEBT":
@@ -613,21 +773,19 @@ if st.button("Generate My Investment Plan 🚀", type="primary"):
         st.markdown("---")
         st.header(f"2️⃣ Strategy: {user_profile} Investor")
         
-        # --- [RESTORED MISSING BLOCK START] ---
         # This is the logic that defines 'cluster_target'
         if user_profile == "Conservative":
-            allocation = {"Equity": 20, "Debt": 60, "Gold": 20}
+            allocation = {"Equity": 20, "Debt Funds": 60, "Gold": 20}
             exp_return = 8.0 
             cluster_target = "Safe"
         elif user_profile == "Moderate":
-            allocation = {"Equity": 50, "Debt": 30, "Gold": 20}
+            allocation = {"Equity": 50, "Debt Funds": 30, "Gold": 20}
             exp_return = 10.0
             cluster_target = "Moderate"
         else:
-            allocation = {"Equity": 70, "Debt": 20, "Gold": 10}
+            allocation = {"Equity": 70, "Debt Funds": 20, "Gold": 10}
             exp_return = 12.0
             cluster_target = "Risky"
-        # --- [RESTORED MISSING BLOCK END] ---
             
         # Re-Calculate Wealth with the CORRECT Expected Return
         future_val, real_val, total_invested, _ = calculate_future_wealth_dynamic(
@@ -643,37 +801,39 @@ if st.button("Generate My Investment Plan 🚀", type="primary"):
             st.info(f"**Analysis:** Based on Age ({age}) and Risk Score ({current_risk_score}).")
             st.write(f"📈 Expected Annual Return: **{exp_return}%**")
         
-        # 5. GOAL ANALYSIS
+        # 5. MULTI-GOAL ANALYSIS
         st.markdown("---")
-        st.subheader(f"🎯 Goal Analysis: {goal_name}")
+        st.subheader("🎯 Life Goals Analysis")
         
-        # A. INFLATION ADJUSTMENT
-        # Cost of goal in future (at 6% inflation)
-        inflated_cost = goal_cost * ((1 + 0.06) ** goal_years)
-        
-        # B. SMART PROJECTION (Using the Dynamic Engine for the Goal Period)
-        goal_projected_val, _, _, _ = calculate_future_wealth_dynamic(
-            income, expenses, loan_df, exp_return, goal_years, step_up_rate
-        )
-        
-        c_goal1, c_goal2 = st.columns(2)
-        c_goal1.metric("Current Cost", format_indian(goal_cost))
-        c_goal2.metric(f"Cost in {goal_years} Years", format_indian(inflated_cost), help="Adjusted for 6% Inflation")
-        
-        if goal_projected_val >= inflated_cost:
-            st.success(f"✅ On Track! You will likely have {format_indian(goal_projected_val)}.")
-            st.caption("Strategy: Your increasing SIPs and ending EMIs make this possible.")
+        if goal_df.empty or goal_df['Cost (₹)'].sum() == 0:
+            st.info("No specific goals added. Focus on building general wealth!")
         else:
-            st.warning(f"❌ Gap Detected. Projected: {format_indian(goal_projected_val)}")
-            st.write(f"Shortfall: {format_indian(inflated_cost - goal_projected_val)}")
-            st.info("💡 Tip: Prioritize this goal or delay it by 1-2 years.")
-        # is_possible, projected_goal_amt = check_goal_feasibility(monthly_surplus, goal_cost, goal_years, exp_return)
-        
-        # if is_possible:
-        #     st.success(f"✅ On Track! Projected: {format_indian(projected_goal_amt)}")
-        # else:
-        #     st.warning(f"❌ Shortfall Detected. Projected: {format_indian(projected_goal_amt)}")
-        #     st.write(f"Gap: {format_indian(goal_cost - projected_goal_amt)}")
+            # Loop through every goal the user put in the table
+            for index, row in goal_df.dropna().iterrows():
+                g_name = row['Goal']
+                g_cost = row['Cost (₹)']
+                g_years = row['Years Away']
+                
+                # A. INFLATION ADJUSTMENT
+                inflated_cost = g_cost * ((1 + 0.06) ** g_years)
+                
+                # B. SMART PROJECTION (Wealth at that specific year)
+                goal_projected_val, _, _, _ = calculate_future_wealth_dynamic(
+                    income, expenses, loan_df, exp_return, g_years, step_up_rate
+                )
+                
+                # C. DISPLAY IN AN EXPANDER (Clean UI)
+                with st.expander(f"📌 {g_name} in {int(g_years)} Years (Need: {format_indian(inflated_cost)})"):
+                    c_goal1, c_goal2, c_goal3 = st.columns(3)
+                    c_goal1.metric("Current Cost", format_indian(g_cost))
+                    c_goal2.metric("Inflated Cost", format_indian(inflated_cost), "6% Inflation")
+                    c_goal3.metric("Projected Wealth", format_indian(goal_projected_val))
+                    
+                    if goal_projected_val >= inflated_cost:
+                        st.success(f"✅ On Track! Your projected wealth safely covers this {g_name}.")
+                    else:
+                        st.warning(f"❌ Shortfall Detected. You will be short by {format_indian(inflated_cost - goal_projected_val)}.")
+                        st.info("💡 Tip: Set up a dedicated Mutual Fund SIP specifically for this goal.")
 
         # --- 6. WEALTH PROJECTION (TABBED INTERFACE) ---
         st.markdown("---")
@@ -752,17 +912,16 @@ if st.button("Generate My Investment Plan 🚀", type="primary"):
         
         rec_stocks = get_diversified_stocks(cluster_target, need_tax_saving)
         
-        # --- NEW: ATTEMPT TO FETCH LIVE DATA ---
-        # Note: This relies on your CSV having a valid 'Symbol' column. 
-        # If your CSV only has 'Stock_Name', we will simulate this for the demo using NIFTY
-        
-        with st.spinner("Fetching Live Market Data..."):
-            # For demo purposes, let's show live Nifty 50 Index Status
-            nifty_data = get_live_prices(["^NSEI"]) # ^NSEI is Nifty 50 symbol
+        with st.spinner("📈 Fetching Live Market Data for your portfolio..."):
+            # Fetch Nifty 50 for the header
+            nifty_data = get_live_prices(["^NSEI"]) 
+            
+            # Fetch prices for the exact stocks recommended
+            symbols_to_fetch = rec_stocks['Symbol'].dropna().tolist()
+            live_stock_prices = get_live_prices(symbols_to_fetch)
             
         col_live, col_dummy = st.columns([2, 1])
         if nifty_data:
-            # Clean up key name for display
             nifty_val = list(nifty_data.values())[0]
             col_live.metric("🔴 Live Market Status (Nifty 50)", f"₹{nifty_val:,.2f}", delta="Real-time update")
         else:
@@ -781,8 +940,20 @@ if st.button("Generate My Investment Plan 🚀", type="primary"):
         with col_stock_table:
             st.caption("Selected High-Quality Stocks:")
             display_df = rec_stocks.copy()
-            display_df.columns = ['Stock Name', 'Category', '3Y Return (%)', 'Risk Score']
-            st.dataframe(display_df, hide_index=True, use_container_width=True)
+            
+            # Map the fetched live prices to the dataframe
+            if live_stock_prices:
+                # We strip the '.NS' suffix when matching back to the dataframe
+                display_df['Live Price'] = display_df['Symbol'].apply(
+                    lambda x: f"₹{live_stock_prices.get(str(x) + '.NS', live_stock_prices.get(x, 0)):.2f}"
+                )
+            else:
+                display_df['Live Price'] = "Offline"
+                
+            display_df = display_df[['Stock_Name', 'Sector', 'Annual_Return', 'Volatility_Beta', 'Live Price']]
+            display_df.columns = ['Stock Name', 'Category', '3Y Return (%)', 'Risk Score', 'Live Price']
+            
+            st.dataframe(display_df, hide_index=True, width='stretch')
 
         with col_sector_chart:
             st.caption("Sector Exposure:")
@@ -804,12 +975,17 @@ if st.button("Generate My Investment Plan 🚀", type="primary"):
         st.markdown("---")
         st.header("5️⃣ AI Strategic Insights")
         
-        # Generate the tips
-        strategic_tips = generate_smart_strategy(user_profile, age, wellness_score, debt_check, monthly_surplus)
+        # Add a visual loading spinner so we know it's working
+        with st.spinner("🤖 AI is analyzing your financial profile... (This may take 30-60 seconds on local hardware)"):
+            strategic_tips = generate_smart_strategy(user_profile, age, wellness_score, debt_check, monthly_surplus)
         
         # Display as a clean list
         for tip in strategic_tips:
             st.info(tip)
+        
+        # Generate the tips
+        strategic_tips = generate_smart_strategy(user_profile, age, wellness_score, debt_check, monthly_surplus)
+        
             
         # Add a static "Pro Tip" for everyone
         with st.expander("💡 Pro Tip: The Rule of 72"):
