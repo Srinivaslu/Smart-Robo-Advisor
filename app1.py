@@ -478,231 +478,208 @@ def create_pdf_report(user_profile, monthly_surplus, future_val, allocation, rec
     return pdf.output(dest='S').encode('latin-1')
 
 # ==========================================
-# 5. USER INTERFACE (SIDEBAR)
-# ==========================================
-st.sidebar.title("📝 User Details")
-st.sidebar.caption(f"Market Data Updated: {datetime.date.today().strftime('%d %b %Y')}")
-
-# --- 1. DEMOGRAPHICS FOR RESEARCH ---
-st.sidebar.subheader("👤 Personal Info (For Research)")
-user_name = st.sidebar.text_input("First Name", placeholder="e.g., Amit")
-user_gender = st.sidebar.selectbox("Gender", ["Male", "Female", "Other", "Prefer not to say"])
-user_city = st.sidebar.selectbox("Location Type", ["Metro City", "Tier 2 City", "Tier 3 / Rural"])
-dependents = st.sidebar.number_input("Number of Dependents (Kids/Parents)", 0, 10, 0)
-
-st.sidebar.markdown("---")
-
-# --- 2. FINANCIAL BASELINE ---
-st.sidebar.subheader("💰 Income & Expenses")
-age = st.sidebar.number_input("Current Age", 18, 80, 25)
-retire_age = st.sidebar.number_input("Retirement Age", 40, 90, 60)
-income = st.sidebar.number_input("Monthly Income (₹)", 10000, 1000000, 50000, step=5000)
-expenses = st.sidebar.number_input("Monthly Expenses (₹)", 5000, 500000, 20000, step=1000)
-
-# Smart Tax Logic
-annual_income = income * 12
-tax_threshold = 775000 
-tax_default = True if annual_income > tax_threshold else False
-
-st.sidebar.markdown("---")
-
-# --- 3. LOAN MANAGEMENT ---
-st.sidebar.subheader("🏦 Loan Management")
-st.sidebar.caption("Add your active loans here:")
-
-default_loans = pd.DataFrame([
-    {"Loan Name": "Car Loan", "EMI Amount (₹)": 15000, "Interest Rate (%)": 9.5, "Years Remaining": 3},
-    {"Loan Name": "Home Loan", "EMI Amount (₹)": 0, "Interest Rate (%)": 8.5, "Years Remaining": 15},
-])
-
-loan_df = st.sidebar.data_editor(
-    default_loans, 
-    num_rows="dynamic",
-    column_config={
-        "Loan Name": st.column_config.TextColumn("Loan Name"),
-        "EMI Amount (₹)": st.column_config.NumberColumn("EMI (₹)", min_value=0, step=1000),
-        "Interest Rate (%)": st.column_config.NumberColumn("Rate (%)", min_value=0.0, max_value=50.0, step=0.1),
-        "Years Remaining": st.column_config.NumberColumn("Years Left", min_value=0.1, max_value=30.0, step=0.5)
-    },
-    width='stretch'
-)
-
-st.sidebar.markdown("---")
-
-# --- 4. CURRENT ASSETS & PROTECTION ---
-st.sidebar.subheader("🛡️ Current Assets & Protection")
-
-has_health_ins = st.sidebar.checkbox("✅ Health Insurance (Self/Family)")
-has_term_ins = st.sidebar.checkbox("✅ Term Life Insurance")
-
-existing_wealth = st.sidebar.number_input("Total Existing Investments (₹)", 0, 100000000, 0, step=50000, help="Total value of FDs, Stocks, Gold, PFs, etc.")
-
-existing_investments = st.sidebar.multiselect(
-    "Where are you currently invested?",
-    ["Mutual Funds", "Stocks/Equity", "Gold", "Fixed Deposits (FD)", "Real Estate", "Crypto", "PPF/EPF"],
-    default=[]
-)
-
-need_tax_saving = st.sidebar.checkbox("I need Tax Saving (80C) 📝", value=tax_default)
-
-st.sidebar.markdown("---")
-
-# --- 5. GOALS & PSYCHOLOGY (NEW) ---
-st.sidebar.subheader("🎯 Your Life Goals")
-st.sidebar.caption("Add your short and long-term goals:")
-
-default_goals = pd.DataFrame([
-    {"Goal": "Car", "Cost (₹)": 800000, "Years Away": 3},
-    {"Goal": "Dream Home", "Cost (₹)": 5000000, "Years Away": 10},
-])
-
-# Create the interactive table
-goal_df = st.sidebar.data_editor(
-    default_goals, 
-    num_rows="dynamic",
-    column_config={
-        "Goal": st.column_config.SelectboxColumn(
-            "Goal Type",
-            help="Select or type a goal",
-            options=["House", "Car", "Bike", "Marriage", "Business", "Vacation", "Emergency Fund", "Other"],
-            required=True,
-        ),
-        "Cost (₹)": st.column_config.NumberColumn("Cost (₹)", min_value=10000, step=50000),
-        "Years Away": st.column_config.NumberColumn("Years", min_value=1, max_value=50, step=1)
-    },
-    width='stretch'
-)
-
-step_up_rate = st.sidebar.slider("Annual Salary/SIP Increase (%)", 0, 20, 7)
-
-fin_fear = st.sidebar.selectbox("What is your biggest financial fear?", [
-    "Inflation eating my savings", 
-    "Job loss / Income stop", 
-    "Major Medical Emergency", 
-    "Outliving my money in retirement",
-    "Market crashes"
-])
-
-st.sidebar.markdown("---")
-
-# --- 6. RISK PROFILE ---
-st.sidebar.subheader("🧠 Risk Profile")
-q1 = st.sidebar.radio("1. What is your primary goal?", ("Avoid Loss (1)", "Stable Income (3)", "Grow Wealth (5)"))
-q2 = st.sidebar.radio("2. Investment Time Period?", ("Less than 3 Years (1)", "3-7 Years (3)", "More than 7 Years (5)"))
-q3 = st.sidebar.radio("3. Reaction to Market Crash?", ("Panic Sell (1)", "Hold & Wait (3)", "Buy More (5)"))
-
-def calculate_score(q1, q2, q3):
-    score = 0
-    if "Avoid" in q1: score += 1
-    elif "Income" in q1: score += 3
-    else: score += 5
-    if "Less" in q2: score += 1
-    elif "3-7" in q2: score += 3
-    else: score += 5
-    if "Sell" in q3: score += 1
-    elif "Hold" in q3: score += 3
-    else: score += 5
-    return score * 2
-
-current_risk_score = calculate_score(q1, q2, q3)
-
-# Notice: Database buttons deleted entirely!
-
-# ==========================================
-# 6. MAIN EXECUTION (FULL & FIXED)
+# 5. USER INTERFACE (MAIN PAGE FORM)
 # ==========================================
 st.title("🤖 AI-Powered Investment Advisor")
+st.markdown("Welcome! Please fill out your details below to generate your custom financial plan. All data is completely anonymous.")
+
 with st.expander("ℹ️  **System Architecture (Click to Expand)**"):
     st.write("1. **Logic:** Random Forest for Risk Profiling.")
     st.write("2. **Selection:** Sharpe Ratio & K-Means Clustering.")
-    st.write("3. **Projection:** Dynamic Cash Flow Engine (Takes Loan End Dates into account).")
+    st.write("3. **Projection:** Dynamic Cash Flow Engine.")
 
 st.markdown("---")
 
-# --- NEW: AT-A-GLANCE DASHBOARD ---
-# Calculate EMI just for the screen display
-display_emi = loan_df['EMI Amount (₹)'].sum() if not loan_df.empty else 0
-display_surplus = income - expenses - display_emi
-
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Monthly Income", f"₹{int(income):,}")
-col2.metric("Monthly Expenses", f"₹{int(expenses):,}")
-
-# The logic you asked for: Hide the number if Debt is 0!
-if display_emi > 0:
-    col3.metric("Debt Pay (EMI)", f"₹{int(display_emi):,}")
-else:
-    col3.success("🎉 Debt Free!")
-
-col4.metric("Available to Invest", f"₹{int(display_surplus):,}")
-st.markdown("---")
-
-if st.button("Generate My Investment Plan 🚀", type="primary"):
+# We use a form so the app doesn't refresh on every single keystroke!
+with st.form("user_data_form"):
     
-    # 0. BLOCKING ERROR CHECK
+    # --- 1. DEMOGRAPHICS ---
+    st.subheader("👤 Personal Info")
+    col1, col2 = st.columns(2)
+    user_name = col1.text_input("First Name", placeholder="Type your name...")
+    user_gender = col2.selectbox("Gender", ["Male", "Female", "Other", "Prefer not to say"], index=None, placeholder="Select...")
+    user_city = col1.selectbox("Location Type", ["Metro City", "Tier 2 City", "Tier 3 / Rural"], index=None, placeholder="Select...")
+    dependents = col2.number_input("Number of Dependents (Kids/Parents)", min_value=0, max_value=10, value=0)
+
+    st.markdown("---")
+
+    # --- 2. FINANCIAL BASELINE ---
+    st.subheader("💰 Income & Expenses")
+    col3, col4 = st.columns(2)
+    # value=None forces them to type a number!
+    age = col3.number_input("Current Age", min_value=18, max_value=80, value=None, placeholder="e.g. 25")
+    retire_age = col4.number_input("Retirement Age", min_value=40, max_value=90, value=None, placeholder="e.g. 60")
+    income = col3.number_input("Monthly Income (₹)", min_value=10000, value=None, step=5000, placeholder="e.g. 50000")
+    expenses = col4.number_input("Monthly Expenses (₹)", min_value=5000, value=None, step=1000, placeholder="e.g. 20000")
+
+    st.markdown("---")
+
+    # --- 3. LOAN MANAGEMENT (BLANK BY DEFAULT) ---
+    st.subheader("🏦 Active Loans")
+    st.caption("Add your active loans here (Leave blank if none):")
+    
+    empty_loans = pd.DataFrame(columns=["Loan Name", "EMI Amount (₹)", "Interest Rate (%)", "Years Remaining"])
+    loan_df = st.data_editor(
+        empty_loans, 
+        num_rows="dynamic",
+        column_config={
+            "Loan Name": st.column_config.TextColumn("Loan Name"),
+            "EMI Amount (₹)": st.column_config.NumberColumn("EMI (₹)", min_value=0, step=1000),
+            "Interest Rate (%)": st.column_config.NumberColumn("Rate (%)", min_value=0.0, max_value=50.0, step=0.1),
+            "Years Remaining": st.column_config.NumberColumn("Years Left", min_value=0.1, max_value=30.0, step=0.5)
+        },
+        width='stretch'
+    )
+
+    st.markdown("---")
+
+    # --- 4. CURRENT ASSETS & PROTECTION ---
+    st.subheader("🛡️ Current Assets & Protection")
+    col5, col6 = st.columns(2)
+    has_health_ins = col5.checkbox("✅ I have Health Insurance")
+    has_term_ins = col6.checkbox("✅ I have Term Life Insurance")
+
+    existing_wealth = st.number_input("Total Existing Investments (₹)", min_value=0, value=0, step=50000, help="Total value of FDs, Stocks, Gold, PFs, etc.")
+    
+    existing_investments = st.multiselect(
+        "Where are you currently invested?",
+        ["Mutual Funds", "Stocks/Equity", "Gold", "Fixed Deposits (FD)", "Real Estate", "Crypto", "PPF/EPF"],
+        default=[]
+    )
+
+    st.markdown("---")
+
+    # --- 5. GOALS (BLANK BY DEFAULT) ---
+    st.subheader("🎯 Your Life Goals")
+    st.caption("Add your short and long-term goals (Leave blank if none):")
+
+    empty_goals = pd.DataFrame(columns=["Goal", "Cost (₹)", "Years Away"])
+    goal_df = st.data_editor(
+        empty_goals, 
+        num_rows="dynamic",
+        column_config={
+            "Goal": st.column_config.SelectboxColumn("Goal Type", options=["House", "Car", "Bike", "Marriage", "Business", "Vacation", "Other"]),
+            "Cost (₹)": st.column_config.NumberColumn("Cost (₹)", min_value=10000, step=50000),
+            "Years Away": st.column_config.NumberColumn("Years", min_value=1, max_value=50, step=1)
+        },
+        width='stretch'
+    )
+
+    step_up_rate = st.slider("Annual Salary/SIP Increase (%)", 0, 20, 7)
+
+    fin_fear = st.selectbox("What is your biggest financial fear?", [
+        "Inflation eating my savings", 
+        "Job loss / Income stop", 
+        "Major Medical Emergency", 
+        "Outliving my money in retirement",
+        "Market crashes"
+    ], index=None, placeholder="Select your biggest fear...")
+
+    st.markdown("---")
+
+    # --- 6. RISK PROFILE (BLANK BY DEFAULT) ---
+    st.subheader("🧠 Risk Profile")
+    q1 = st.radio("1. What is your primary goal?", ("Avoid Loss (1)", "Stable Income (3)", "Grow Wealth (5)"), index=None)
+    q2 = st.radio("2. Investment Time Period?", ("Less than 3 Years (1)", "3-7 Years (3)", "More than 7 Years (5)"), index=None)
+    q3 = st.radio("3. Reaction to Market Crash?", ("Panic Sell (1)", "Hold & Wait (3)", "Buy More (5)"), index=None)
+
+    st.markdown("---")
+    # THE SUBMIT BUTTON
+    submit_button = st.form_submit_button("Generate My Investment Plan 🚀", type="primary", use_container_width=True)
+
+# ==========================================
+# 6. MAIN EXECUTION (Runs only after Submit)
+# ==========================================
+if submit_button:
+    
+    # 0. BLOCKING ERROR CHECKS
+    if age is None or retire_age is None or income is None or expenses is None:
+        st.error("❌ Please fill in your Age, Retirement Age, Income, and Expenses to continue!")
+        st.stop()
+        
+    if user_gender is None or user_city is None or fin_fear is None or q1 is None or q2 is None or q3 is None:
+        st.error("❌ Please answer all dropdown and multiple choice questions to continue!")
+        st.stop()
+
     if retire_age <= age:
         st.error("❌ Invalid Age: Retirement Age must be greater than Current Age.")
         st.stop()
-        
-# --- NEW: SILENT DATA COLLECTION FOR MBA REPORT ---
-    
-    # 1. Initialize empty defaults (using the exact names you want)
+
+    # --- AT-A-GLANCE DASHBOARD (Moved inside so math works) ---
+    st.markdown("## Your Financial Blueprint")
+    display_emi = int(loan_df['EMI Amount (₹)'].sum()) if not loan_df.empty else 0
+    display_surplus = int(income - expenses - display_emi)
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Monthly Income", f"₹{income:,}")
+    col2.metric("Monthly Expenses", f"₹{expenses:,}")
+    if display_emi > 0:
+        col3.metric("Debt Pay (EMI)", f"₹{display_emi:,}")
+    else:
+        col3.success("🎉 Debt Free!")
+    col4.metric("Available to Invest", f"₹{display_surplus:,}")
+    st.markdown("---")
+
+    # Calculate smart tax logic based on their active input
+    annual_income = income * 12
+    tax_threshold = 775000 
+    tax_default = True if annual_income > tax_threshold else False
+    need_tax_saving = tax_default
+
+    # Calculate Risk Score safely now that we know they answered
+    def calculate_score(q1, q2, q3):
+        score = 0
+        if "Avoid" in q1: score += 1
+        elif "Income" in q1: score += 3
+        else: score += 5
+        if "Less" in q2: score += 1
+        elif "3-7" in q2: score += 3
+        else: score += 5
+        if "Sell" in q3: score += 1
+        elif "Hold" in q3: score += 3
+        else: score += 5
+        return score * 2
+
+    current_risk_score = calculate_score(q1, q2, q3)
+
+    # --- SILENT DATA COLLECTION FOR MBA REPORT ---
     goal1_name, goal1_cost, goal1_years = "None", 0, 0
     goal2_name, goal2_cost, goal2_years = "None", 0, 0
     goal3_name, goal3_cost, goal3_years = "None", 0, 0
 
-    # 2. Safely extract up to the first 3 goals from the table
     if not goal_df.empty:
-        valid_goals = goal_df.dropna().head(3) # Take only the top 3
+        valid_goals = goal_df.dropna().head(3) 
         goals_list = valid_goals.to_dict('records')
         
         if len(goals_list) > 0:
-            goal1_name = str(goals_list[0]['Goal'])
-            goal1_cost = int(goals_list[0]['Cost (₹)'])
-            goal1_years = int(goals_list[0]['Years Away'])
+            goal1_name, goal1_cost, goal1_years = str(goals_list[0]['Goal']), int(goals_list[0]['Cost (₹)']), int(goals_list[0]['Years Away'])
         if len(goals_list) > 1:
-            goal2_name = str(goals_list[1]['Goal'])
-            goal2_cost = int(goals_list[1]['Cost (₹)'])
-            goal2_years = int(goals_list[1]['Years Away'])
+            goal2_name, goal2_cost, goal2_years = str(goals_list[1]['Goal']), int(goals_list[1]['Cost (₹)']), int(goals_list[1]['Years Away'])
         if len(goals_list) > 2:
-            goal3_name = str(goals_list[2]['Goal'])
-            goal3_cost = int(goals_list[2]['Cost (₹)'])
-            goal3_years = int(goals_list[2]['Years Away'])
+            goal3_name, goal3_cost, goal3_years = str(goals_list[2]['Goal']), int(goals_list[2]['Cost (₹)']), int(goals_list[2]['Years Away'])
 
-    # 3. Build the massive, clean row for Google Sheets
     user_data_row = [
         datetime.date.today().strftime("%Y-%m-%d"), 
         str(user_name), str(user_gender), str(user_city), int(dependents),
         int(age), int(retire_age), int(income), int(expenses), int(display_emi), 
         bool(has_health_ins), bool(has_term_ins), int(existing_wealth),
-        
-        # --- NEW: TOP 3 GOALS SEPARATED ---
         str(goal1_name), int(goal1_cost), int(goal1_years),
         str(goal2_name), int(goal2_cost), int(goal2_years),
         str(goal3_name), int(goal3_cost), int(goal3_years),
-        
         int(step_up_rate), str(fin_fear), int(current_risk_score)
     ]
     
-    # Send it to Google Sheets in the background!
     save_to_google_sheets(user_data_row)
 
     # --- 1. DYNAMIC CALCULATION ENGINE ---
     years_to_invest = retire_age - age
-    
-    # Default return (Safety init)
     exp_return = 8.0 
     
-    # Run the Advanced Calculation first
     future_val, real_val, total_invested, current_total_emi = calculate_future_wealth_dynamic(
         income, expenses, loan_df, exp_return, years_to_invest, step_up_rate
     )
     
-    # Define Surplus
     monthly_surplus = income - expenses - current_total_emi
-    
-    # --- BUG FIX: CHECK DEBT STATUS SAFELY ---
-    # Only look at loans where the user actually has an EMI greater than 0
     active_loans = loan_df[loan_df['EMI Amount (₹)'] > 0] if not loan_df.empty else pd.DataFrame()
     
     if not active_loans.empty and (active_loans['Interest Rate (%)'] > 12.0).any():
@@ -739,22 +716,19 @@ if st.button("Generate My Investment Plan 🚀", type="primary"):
     
     # 2. SAFETY REPORT
     st.header("1️⃣ Safety & Risk Management")
-    
-    # We change this to 3 columns to make room for Health Insurance!
     col_safe1, col_safe2, col_safe3 = st.columns(3) 
     
     emergency_fund = expenses * 6
     insurance_needed = (income * 12) * 20
-    health_cover_needed = 1000000 # Standard baseline recommendation (₹10 Lakhs)
+    health_cover_needed = 1000000 
     
-    col_safe1.metric("🛡️ Emergency Fund", format_indian(emergency_fund), "Liquid Assets")
-    col_safe2.metric("🏥 Term Life Cover", format_indian(insurance_needed), "Recommended Coverage")
+    col_safe1.metric("🛡️ Emergency Fund", f"₹{emergency_fund:,}", "Liquid Assets")
+    col_safe2.metric("🏥 Term Life Cover", f"₹{insurance_needed:,}", "Recommended Coverage")
     
-    # NEW: Dynamic Health Insurance Display
     if has_health_ins:
         col_safe3.metric("🩺 Health Cover", "Active ✅", "Family Protected")
     else:
-        col_safe3.metric("🩺 Health Cover", format_indian(health_cover_needed), "⚠️ Missing (High Risk)")
+        col_safe3.metric("🩺 Health Cover", f"₹{health_cover_needed:,}", "⚠️ Missing (High Risk)")
     
     # 3. STRATEGY DECISION
     if debt_check == "PRIORITY: PAY DEBT":
@@ -773,7 +747,6 @@ if st.button("Generate My Investment Plan 🚀", type="primary"):
         st.markdown("---")
         st.header(f"2️⃣ Strategy: {user_profile} Investor")
         
-        # This is the logic that defines 'cluster_target'
         if user_profile == "Conservative":
             allocation = {"Equity": 20, "Debt Funds": 60, "Gold": 20}
             exp_return = 8.0 
@@ -787,7 +760,6 @@ if st.button("Generate My Investment Plan 🚀", type="primary"):
             exp_return = 12.0
             cluster_target = "Risky"
             
-        # Re-Calculate Wealth with the CORRECT Expected Return
         future_val, real_val, total_invested, _ = calculate_future_wealth_dynamic(
             income, expenses, loan_df, exp_return, years_to_invest, step_up_rate
         )
@@ -808,31 +780,27 @@ if st.button("Generate My Investment Plan 🚀", type="primary"):
         if goal_df.empty or goal_df['Cost (₹)'].sum() == 0:
             st.info("No specific goals added. Focus on building general wealth!")
         else:
-            # Loop through every goal the user put in the table
             for index, row in goal_df.dropna().iterrows():
                 g_name = row['Goal']
                 g_cost = row['Cost (₹)']
                 g_years = row['Years Away']
                 
-                # A. INFLATION ADJUSTMENT
                 inflated_cost = g_cost * ((1 + 0.06) ** g_years)
                 
-                # B. SMART PROJECTION (Wealth at that specific year)
                 goal_projected_val, _, _, _ = calculate_future_wealth_dynamic(
                     income, expenses, loan_df, exp_return, g_years, step_up_rate
                 )
                 
-                # C. DISPLAY IN AN EXPANDER (Clean UI)
-                with st.expander(f"📌 {g_name} in {int(g_years)} Years (Need: {format_indian(inflated_cost)})"):
+                with st.expander(f"📌 {g_name} in {int(g_years)} Years (Need: ₹{int(inflated_cost):,})"):
                     c_goal1, c_goal2, c_goal3 = st.columns(3)
-                    c_goal1.metric("Current Cost", format_indian(g_cost))
-                    c_goal2.metric("Inflated Cost", format_indian(inflated_cost), "6% Inflation")
-                    c_goal3.metric("Projected Wealth", format_indian(goal_projected_val))
+                    c_goal1.metric("Current Cost", f"₹{int(g_cost):,}")
+                    c_goal2.metric("Inflated Cost", f"₹{int(inflated_cost):,}", "6% Inflation")
+                    c_goal3.metric("Projected Wealth", f"₹{int(goal_projected_val):,}")
                     
                     if goal_projected_val >= inflated_cost:
                         st.success(f"✅ On Track! Your projected wealth safely covers this {g_name}.")
                     else:
-                        st.warning(f"❌ Shortfall Detected. You will be short by {format_indian(inflated_cost - goal_projected_val)}.")
+                        st.warning(f"❌ Shortfall Detected. You will be short by ₹{int(inflated_cost - goal_projected_val):,}.")
                         st.info("💡 Tip: Set up a dedicated Mutual Fund SIP specifically for this goal.")
 
         # --- 6. WEALTH PROJECTION (TABBED INTERFACE) ---
@@ -842,23 +810,22 @@ if st.button("Generate My Investment Plan 🚀", type="primary"):
         tab1, tab2 = st.tabs(["📊 Standard Projection", "🎛️ What-If Scenarios"])
         
         with tab1:
-            # This is your existing chart code
             st.caption(f"Based on {exp_return}% Return and {step_up_rate}% Annual Step-up.")
             chart_data = get_projection_data_dynamic(income, expenses, loan_df, exp_return, years_to_invest, step_up_rate)
             st.area_chart(chart_data, color=["#A9A9A9", "#4CAF50"])
             
             m1, m2, m3 = st.columns(3)
-            m1.metric("Principal", format_indian(total_invested))
-            m2.metric("Wealth Gained", format_indian(future_val - total_invested))
-            m3.metric("Total Corpus", format_indian(future_val))
+            m1.metric("Principal", f"₹{int(total_invested):,}")
+            m2.metric("Wealth Gained", f"₹{int(future_val - total_invested):,}")
+            m3.metric("Total Corpus", f"₹{int(future_val):,}")
 
         with tab2:
             st.write("### 🔮 Simulate Future Scenarios")
             col_sim1, col_sim2 = st.columns(2)
             
             # Temporary sliders just for this tab
-            sim_return = col_sim1.slider("Hypothetical Return (%)", 5.0, 25.0, exp_return, 0.5)
-            sim_stepup = col_sim2.slider("Hypothetical Step-Up (%)", 0, 20, step_up_rate, 1)
+            sim_return = col_sim1.slider("Hypothetical Return (%)", 5.0, 25.0, float(exp_return), 0.5)
+            sim_stepup = col_sim2.slider("Hypothetical Step-Up (%)", 0, 20, int(step_up_rate), 1)
             
             # Recalculate specifically for simulation
             sim_future, _, _, _ = calculate_future_wealth_dynamic(
@@ -867,40 +834,35 @@ if st.button("Generate My Investment Plan 🚀", type="primary"):
             
             diff = sim_future - future_val
             
-            st.metric("Simulated Corpus", format_indian(sim_future), delta=format_indian(diff))
+            st.metric("Simulated Corpus", f"₹{int(sim_future):,}", delta=f"₹{int(diff):,}")
             st.caption("See how small changes in Return or Step-up drastically change your final wealth.")
             
             sim_chart = get_projection_data_dynamic(income, expenses, loan_df, sim_return, years_to_invest, sim_stepup)
             st.line_chart(sim_chart['Wealth Created (Interest)'])
         
-        # chart_data = get_projection_data_dynamic(income, expenses, loan_df, exp_return, years_to_invest, step_up_rate)
-        # st.area_chart(chart_data, color=["#A9A9A9", "#4CAF50"]) 
-        
 
-        # --- NEW: RETIREMENT LIFESTYLE CHECK (SWP Logic) ---
-        st.markdown("#### 🛌3.1 Can I retire comfortably?")
+        # --- RETIREMENT LIFESTYLE CHECK (SWP Logic) ---
+        st.markdown("#### 🛌 3.1 Can I retire comfortably?")
         
         # 1. Calculate Future Monthly Expenses (Inflation Adjusted)
-        # We assume expenses grow at 6% inflation until retirement
         future_monthly_expenses = expenses * ((1 + 0.06) ** years_to_invest)
         
-        # 2. Calculate Safe Monthly Passive Income from Corpus (SWP)
-        # Standard Rule: You can safely withdraw 6% of your corpus annually without depleting it too fast
+        # 2. Calculate Safe Monthly Passive Income from Corpus (SWP @ 6%)
         safe_withdrawal_rate = 0.06
         monthly_passive_income = (future_val * safe_withdrawal_rate) / 12
         
         # 3. Compare
         col_life1, col_life2, col_life3 = st.columns(3)
-        col_life1.metric("Future Monthly Expense", format_indian(int(future_monthly_expenses)), help="Your current expenses adjusted for inflation.")
-        col_life2.metric("Your Passive Income", format_indian(int(monthly_passive_income)), help="Monthly income generated from your corpus @ 6% withdrawal.")
+        col_life1.metric("Future Monthly Expense", f"₹{int(future_monthly_expenses):,}", help="Your current expenses adjusted for 6% inflation.")
+        col_life2.metric("Your Passive Income", f"₹{int(monthly_passive_income):,}", help="Monthly income generated from your corpus @ 6% withdrawal.")
         
         surplus_deficit = monthly_passive_income - future_monthly_expenses
         
         if surplus_deficit >= 0:
-            col_life3.success(f"✅ Freedom! Surplus: {format_indian(int(surplus_deficit))}/mo")
+            col_life3.success(f"✅ Freedom! Surplus: ₹{int(surplus_deficit):,}/mo")
             st.caption("🎉 Result: You can maintain your current lifestyle comfortably.")
         else:
-            col_life3.error(f"❌ Shortfall: {format_indian(int(abs(surplus_deficit)))}/mo")
+            col_life3.error(f"❌ Shortfall: ₹{int(abs(surplus_deficit)):,}/mo")
             st.caption("⚠️ Warning: Your corpus isn't enough to cover inflation-adjusted expenses. Increase SIP!")
             
         st.markdown("---")
@@ -943,7 +905,6 @@ if st.button("Generate My Investment Plan 🚀", type="primary"):
             
             # Map the fetched live prices to the dataframe
             if live_stock_prices:
-                # We strip the '.NS' suffix when matching back to the dataframe
                 display_df['Live Price'] = display_df['Symbol'].apply(
                     lambda x: f"₹{live_stock_prices.get(str(x) + '.NS', live_stock_prices.get(x, 0)):.2f}"
                 )
@@ -966,10 +927,8 @@ if st.button("Generate My Investment Plan 🚀", type="primary"):
         
         equity_share = int((monthly_surplus * allocation['Equity']) / 100)
         
-        st.success(f"💡 **Action:** Setup SIP of **{format_indian(equity_share)}** divided among these funds.")
+        st.success(f"💡 **Action:** Setup SIP of **₹{equity_share:,}** divided among these funds.")
         st.info("🗓️ **Review:** Rebalance portfolio every 12 months.")
-        
-        # ... (After the Portfolio & Sector Chart Section) ...
 
         # --- 8. AI STRATEGIC INSIGHTS (NEW) ---
         st.markdown("---")
@@ -1016,9 +975,6 @@ if st.button("Generate My Investment Plan 🚀", type="primary"):
             future_monthly_expenses
         )
         st.download_button("📄 Download PDF Report", data=pdf_data, file_name="Financial_Plan.pdf", mime="application/pdf")
-
-else:
-    st.info("👈 Enter details in the sidebar to generate your plan.")
 
 # Footer
 st.markdown("---")
